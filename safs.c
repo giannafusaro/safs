@@ -1,4 +1,4 @@
-// gcc -Wall myfs.c `pkg-config fuse --cflags --libs` -o myfs
+// gcc -Wall safs.c `pkg-config fuse --cflags --libs` -o safs
 
 #define FUSE_USE_VERSION 26
 
@@ -8,35 +8,35 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
-#include "myfs.h"
+#include "safs.h"
 
 // how did we decide 80 bytes for filepath?
 char filePath[80] = {0};
 int inodeCnt = 1;
 
 // how did we decide 32 bytes for char name?
-struct myfs_dir_entry {
+struct safs_dir_entry {
   char name[32];
   unsigned int inum;
 };
 
 // operations mapping
-static struct fuse_operations myfs_oper = {
-  .getattr = myfs_getattr,
-  .readdir = myfs_readdir,
-  .open = myfs_open,
-  .read = myfs_read,
-  .write = myfs_write,
-  .mknod = myfs_mknod,
-  .setxattr = myfs_setattr,
-  .chmod = myfs_chmod,
-  .chown = myfs_chown,
-  .utimens = myfs_utimens,
-  .utime = myfs_utime,
-  .truncate = myfs_truncate,
-  .ftruncate = myfs_ftruncate,
-  .unlink = myfs_unlink,
-  .link = myfs_link
+static struct fuse_operations safs_oper = {
+  .getattr = safs_getattr,
+  .readdir = safs_readdir,
+  .open = safs_open,
+  .read = safs_read,
+  .write = safs_write,
+  .mknod = safs_mknod,
+  .setxattr = safs_setattr,
+  .chmod = safs_chmod,
+  .chown = safs_chown,
+  .utimens = safs_utimens,
+  .utime = safs_utime,
+  .truncate = safs_truncate,
+  .ftruncate = safs_ftruncate,
+  .unlink = safs_unlink,
+  .link = safs_link
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -46,7 +46,7 @@ int write_inode(const unsigned int in, struct stat st) {
   int fd;   /* file descriptor */
   int rtn;  /* returned value */
 
-  fd = open("/tmp/myfs/Inodes~", O_CREAT|O_RDWR, 0666);
+  fd = open("/tmp/safs/Inodes~", O_CREAT|O_RDWR, 0666);
   if (fd < 0)
     return fd;
 
@@ -73,7 +73,7 @@ int read_inode(const unsigned int in, struct stat *stp) {
   int fd;   /* file descriptor */
   int rtn;  /* returned value */
 
-  fd = open("/tmp/myfs/Inodes~", O_CREAT|O_RDWR, 0666);
+  fd = open("/tmp/safs/Inodes~", O_CREAT|O_RDWR, 0666);
   if (fd < 0)
     return fd;
 
@@ -96,42 +96,42 @@ int read_inode(const unsigned int in, struct stat *stp) {
 ////////////////////////////////////////////////////////////////////////////////
 // TODO
 ////////////////////////////////////////////////////////////////////////////////
-int myfs_link (const char *path1, const char *path2){
+int safs_link (const char *path1, const char *path2){
   // TBD
   return 0;
 }
 
-int myfs_chmod (const char *path, mode_t mode){
+int safs_chmod (const char *path, mode_t mode){
   // TBD
   return 0;
 }
 
-int myfs_chown (const char *path, uid_t uid, gid_t gid){
+int safs_chown (const char *path, uid_t uid, gid_t gid){
   // TBD
   return 0;
 }
 
-int myfs_utimens (const char *path, const struct timespec tv[2]){
+int safs_utimens (const char *path, const struct timespec tv[2]){
   // TBD
   return 0;
 }
 
-int myfs_utime (const char *path, struct utimbuf *tb){
+int safs_utime (const char *path, struct utimbuf *tb){
   // TBD
   return 0;
 }
 
-int myfs_truncate (const char *path, off_t off){
+int safs_truncate (const char *path, off_t off){
   // TBD
     return 0;
 }
 
-int myfs_ftruncate (const char *path, off_t off, struct fuse_file_info *fi){
+int safs_ftruncate (const char *path, off_t off, struct fuse_file_info *fi){
   // TBD
   return 0;
 }
 
-int myfs_setattr (const char * path, const char *name, const char *value, size_t size, int flag){
+int safs_setattr (const char * path, const char *name, const char *value, size_t size, int flag){
   // TBD
   return 0;
 }
@@ -139,14 +139,14 @@ int myfs_setattr (const char * path, const char *name, const char *value, size_t
 ////////////////////////////////////////////////////////////////////////////////
 // Unlink (delete)
 ////////////////////////////////////////////////////////////////////////////////
-int myfs_unlink (const char *path) {
-  struct myfs_dir_entry dir;
+int safs_unlink (const char *path) {
+  struct safs_dir_entry dir;
   struct stat st;
   int index = 0;
   int fd;
   int rtn;
 
-  fd = open("/tmp/myfs/Directory~", O_RDWR);
+  fd = open("/tmp/safs/Directory~", O_RDWR);
   if (fd < 0)
     return -EIO;
 
@@ -172,7 +172,7 @@ int myfs_unlink (const char *path) {
       close(fd);
 
       // found, remove file storage
-      strcpy(filePath,"/tmp/myfs/");
+      strcpy(filePath,"/tmp/safs/");
       strcat(filePath, dir.name);
       unlink(filePath);
 
@@ -192,8 +192,8 @@ int myfs_unlink (const char *path) {
 ////////////////////////////////////////////////////////////////////////////////
 // Make Node
 ////////////////////////////////////////////////////////////////////////////////
-int myfs_mknod(const char *filename, mode_t mode, dev_t dev){
-  struct myfs_dir_entry dir;
+int safs_mknod(const char *filename, mode_t mode, dev_t dev){
+  struct safs_dir_entry dir;
   struct timespec tm;
   struct stat st;
   int index = 0;
@@ -203,7 +203,7 @@ int myfs_mknod(const char *filename, mode_t mode, dev_t dev){
   if ((mode & S_IFMT) != S_IFREG)
     return -EPERM;
 
-  fd = open("/tmp/myfs/Directory~", O_RDWR, 0666);
+  fd = open("/tmp/safs/Directory~", O_RDWR, 0666);
   if (fd < 0)
     return -EIO;
 
@@ -220,7 +220,7 @@ int myfs_mknod(const char *filename, mode_t mode, dev_t dev){
   }
 
   // create file to save contents
-  strcpy(filePath,"/tmp/myfs");
+  strcpy(filePath,"/tmp/safs");
   strcat(filePath, filename);
 
   rtn = open(filePath, O_CREAT|O_TRUNC|O_RDONLY, mode);
@@ -272,15 +272,15 @@ int myfs_mknod(const char *filename, mode_t mode, dev_t dev){
 ////////////////////////////////////////////////////////////////////////////////
 // Write to a file
 ////////////////////////////////////////////////////////////////////////////////
-int myfs_write (const char *path, const char *buf, size_t size, off_t offset, struct fuse_file_info *fi) {
-  struct myfs_dir_entry dir;
+int safs_write (const char *path, const char *buf, size_t size, off_t offset, struct fuse_file_info *fi) {
+  struct safs_dir_entry dir;
   struct stat st;
   int found = 0;
   int cnt = 0;
   int fd;
   int rtn;
 
-  fd = open("/tmp/myfs/Directory~", O_RDWR);
+  fd = open("/tmp/safs/Directory~", O_RDWR);
   if (fd < 0)
     return -EIO;
 
@@ -309,7 +309,7 @@ int myfs_write (const char *path, const char *buf, size_t size, off_t offset, st
   write_inode(dir.inum, st);
 
   // write file
-  strcpy(filePath,"/tmp/myfs/");
+  strcpy(filePath,"/tmp/safs/");
   strcat(filePath, dir.name);
 
   fd = open(filePath, O_WRONLY);
@@ -326,8 +326,8 @@ int myfs_write (const char *path, const char *buf, size_t size, off_t offset, st
 ////////////////////////////////////////////////////////////////////////////////
 // Get file attributes.
 ////////////////////////////////////////////////////////////////////////////////
-static int myfs_getattr(const char *path, struct stat *stbuf) {
-  struct myfs_dir_entry dir;
+static int safs_getattr(const char *path, struct stat *stbuf) {
+  struct safs_dir_entry dir;
   int res = 0;
   int fd;
 
@@ -335,7 +335,7 @@ static int myfs_getattr(const char *path, struct stat *stbuf) {
     stbuf->st_mode = S_IFDIR | 0755;
     stbuf->st_nlink = 2;
   } else {
-    fd = open("/tmp/myfs/Directory~", O_RDWR,0666);
+    fd = open("/tmp/safs/Directory~", O_RDWR,0666);
     if (fd < 0)
       return -EIO;
 
@@ -357,15 +357,15 @@ static int myfs_getattr(const char *path, struct stat *stbuf) {
 ////////////////////////////////////////////////////////////////////////////////
 // Read Directory
 ////////////////////////////////////////////////////////////////////////////////
-static int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *fi) {
-  struct myfs_dir_entry dir;
+static int safs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *fi) {
+  struct safs_dir_entry dir;
   struct stat st;
   int fd_dir;
 
   if (strcmp(path, "/") != 0)
     return -ENOENT;
 
-  fd_dir = open("/tmp/myfs/Directory~", O_RDWR, 0666);
+  fd_dir = open("/tmp/safs/Directory~", O_RDWR, 0666);
   if (fd_dir < 0)
     return -EIO;
 
@@ -387,11 +387,11 @@ static int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off
 ////////////////////////////////////////////////////////////////////////////////
 // Open a file.
 ////////////////////////////////////////////////////////////////////////////////
-static int myfs_open(const char *path, struct fuse_file_info *fi) {
-  struct myfs_dir_entry dir;
+static int safs_open(const char *path, struct fuse_file_info *fi) {
+  struct safs_dir_entry dir;
   int fd;
 
-  fd = open("/tmp/myfs/Directory~", O_RDWR);
+  fd = open("/tmp/safs/Directory~", O_RDWR);
   if (fd < 0)
     return -EIO;
 
@@ -410,16 +410,16 @@ static int myfs_open(const char *path, struct fuse_file_info *fi) {
 ////////////////////////////////////////////////////////////////////////////////
 // Read a file.
 ////////////////////////////////////////////////////////////////////////////////
-static int myfs_read(const char *path, char *buf, size_t size, off_t offset, struct fuse_file_info *fi) {
+static int safs_read(const char *path, char *buf, size_t size, off_t offset, struct fuse_file_info *fi) {
   int fd;
   int rtn = 0;
-  char myPath[80] = {0};
+  char saPath[80] = {0};
   static char iobuf[4096];
 
-  strcat(myPath,"/tmp/myfs");
-  strcat(myPath, path);
+  strcat(saPath,"/tmp/safs");
+  strcat(saPath, path);
 
-  fd = open(myPath, O_RDONLY);
+  fd = open(saPath, O_RDONLY);
   if (fd < 0)
     return -EIO;
 
@@ -447,24 +447,24 @@ static int myfs_read(const char *path, char *buf, size_t size, off_t offset, str
 // Initialization
 ////////////////////////////////////////////////////////////////////////////////
 int main(int argc, char *argv[]) {
-  struct myfs_dir_entry dir;
+  struct safs_dir_entry dir;
   struct stat st;
   int fd_dir;
   int rtn;
 
   // create directory and inode files
-  fd_dir = open("/tmp/myfs/Directory~", O_RDWR, 0666);
+  fd_dir = open("/tmp/safs/Directory~", O_RDWR, 0666);
   if (fd_dir < 0) {
-    rtn = mkdir("/tmp/myfs",0777);
+    rtn = mkdir("/tmp/safs",0777);
 
     // truncate inodes file
-    fd_dir = open("/tmp/myfs/Inodes~", O_CREAT|O_RDWR|O_TRUNC, 0666);
+    fd_dir = open("/tmp/safs/Inodes~", O_CREAT|O_RDWR|O_TRUNC, 0666);
     if (fd_dir < 0)
       return -EIO;
     close(fd_dir);
 
     // create directory file
-    fd_dir = open("/tmp/myfs/Directory~", O_CREAT|O_RDWR, 0666);
+    fd_dir = open("/tmp/safs/Directory~", O_CREAT|O_RDWR, 0666);
     if (fd_dir < 0)
       return -EIO;
 
@@ -510,5 +510,5 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  return fuse_main(argc, argv, &myfs_oper, NULL);
+  return fuse_main(argc, argv, &safs_oper, NULL);
 }
