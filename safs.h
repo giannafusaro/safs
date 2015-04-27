@@ -22,12 +22,6 @@
       <echo "File"> file
 */
 
-
-
-
-
-
-
 int read_inode(const unsigned int in, struct stat *stp);
 int write_inode(const unsigned int in, struct stat st);
 
@@ -57,7 +51,6 @@ int safs_unlink (const char *path);
 
 
 int safs_utimens (const char *path, const struct timespec tv[2]);
-int safs_utime (const char *path, struct utimbuf *tb);
 
 
 /* SAFS_FTRUNCATE, SAFS_FTRUNCATE
@@ -79,6 +72,11 @@ static int safs_getattr(const char *path, struct stat *stbuf);
 
 static int safs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *fi);
 
+/* SAFS_MKNODE
+// creates a filesystem node named pathname, with attributes given by mode and dev.
+// mode specifies permissions to use and type of node to be created
+// It should be a combination (using bitwise OR) of one of the file types listed below
+// and the permissions for the new node. */
 int safs_mknod (const char *filename, mode_t mode, dev_t dev);
 
 /* SASF_WRITE
@@ -95,14 +93,14 @@ int safs_write (const char *path, const char *buf, size_t size, off_t offset, st
 
 
 /* SASF_OPEN
-// opens a file, directory, or URL just as if you had double-clicked the file's icon. If no application name is spec-
-     ified, the default application as determined via LaunchServices is used to open the specified files.
-preconditions:
-postconditions: opened applications inherit environment variables just as if you had launched the application directly through its full path
-                ex// If the file is in the form of a URL, the file will be opened as a URL.
-                You can specify one or more file names (or pathnames), which are interpreted relative to the shell or Terminal window's current working
-                directory. For example, the following command would open all Word files in the current working directory:
-                open *.doc */
+// open or create a file as specified by path for writing or reading as specified by oflag
+// Unless the 'default_permissions' mount option is given, open should check if the operation is permitted for the given flags.
+   Optionally open may also return an arbitrary filehandle in the fuse_file_info structure, which will be passed to all file operations.
+
+return values
+     success => a non-negative integer, termed a file descriptor
+     failure => -1 on failure, and sets errno to indicate the
+     error => errno*/
 static int safs_open(const char *path, struct fuse_file_info *fi);
 
 
@@ -111,14 +109,59 @@ static int safs_open(const char *path, struct fuse_file_info *fi);
 static int safs_read(const char *path, char *buf, size_t size, off_t offset, struct fuse_file_info *fi);
 
 
-
-
-/////////////////////////////
-/////// UNNECESSARY /////////
-/////////////////////////////
 /* CHMOD
+change the permissions of the given path as specified by mode bits
 preconditions: owner of file or super-user is changing mode of path
-purpose: change the permissions of the given path as specified by mode bits
-postconditions: return 0 => success | return > 1 if error */
-// int safs_chmod (const char *path, mode_t mode);
-// int safs_chown (const char *path, uid_t uid, gid_t gid);
+postconditions: permissions of path are changed as specified by mode bits
+return values:
+  - return 0 => success | return > 1 if error */
+int safs_chmod (const char *path, mode_t mode);
+
+/* CHOWN
+change the permissions of the given path as specified by mode bits
+preconditions: owner of file or super-user is changing mode of path
+postconditions: permissions of path are changed as specified by mode bits
+return values:
+  - return 0 => success | return > 1 if error */
+int safs_chown (const char *path, uid_t uid, gid_t gid);
+
+
+
+/* PERMISSIONS
+
+  files
+  - 777: no restrictions or permission, anything goes
+  - 755: file's owner may read, write, and execute the file.
+         all others may read and execute
+  - 700: file's owner may read, write, and execute the file
+         No other users have rights
+  - 666: All users may read and write the file
+  - 644: Owner may read and write a file, while all others
+         may only read the file.
+  - 600: Owner may read and write a file
+         All others have no rights
+
+  directories
+  - 777: No restrictions or permissions
+  - 755: Directory owner has full access
+         All others may list the directory but cannot
+         create or delete files
+  - 700: Directory owner has full access
+         Nobody else has rights */
+
+
+/* FUSE STRUCTURES
+
+struct fuse_file_info{
+  int flags
+  unsigned long fh_old
+  int whitepage
+  unsigned int direct_io: 1
+  unsigned int keep_cache: 1
+  unsigned int flush: 1
+  unsigned int nonseekable: 1
+  unsigned int padding: 27
+  uint64_t fh
+  uint64_t lock_owner
+  uint64_t poll_events
+} */
