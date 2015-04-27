@@ -41,7 +41,6 @@ static struct fuse_operations safs_oper = {
   .chmod = safs_chmod,
   .chown = safs_chown,
   .utimens = safs_utimens,
-  .utime = safs_utime,
   .truncate = safs_truncate,
   .ftruncate = safs_ftruncate,
   .unlink = safs_unlink,
@@ -180,7 +179,6 @@ int safs_chmod (const char *path, mode_t mode){
     int index = 0;
     int found = 0;
     int fd;
-    int rtn;
 
     fd = open("/tmp/safs/Directory~", O_RDWR);
     if (fd < 0)
@@ -214,13 +212,8 @@ int safs_utimens (const char *path, const struct timespec tv[2]){
   return 0;
 }
 
-int safs_utime (const char *path, struct utimbuf *tb){
-  // TBD
-  return 0;
-}
-
-int safs_truncate (const char *path, off_t off){
-  safs_ftruncate(path, off, NULL);
+int safs_truncate (const char *path, off_t off) {
+  return safs_ftruncate(path, off, NULL);
 }
 
 int safs_ftruncate (const char *path, off_t off, struct fuse_file_info *fi){
