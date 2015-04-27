@@ -17,6 +17,7 @@ int inodeCnt = 1;
 // how did we decide 32 bytes for char name?
 struct safs_dir_entry {
   char name[32];
+  char storage[32];
   unsigned int inum;
 };
 
@@ -94,21 +95,108 @@ int read_inode(const unsigned int in, struct stat *stp) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// TODO
+// Link
 ////////////////////////////////////////////////////////////////////////////////
 int safs_link (const char *path1, const char *path2){
-  // TBD
-  return 0;
+	int fd;
+	struct safs_dir_entry dir;
+	struct safs_dir_entry newDir;
+	struct stat st;
+	int rtn;
+	int found = 0;
+	int index;
+
+	fd = open("/tmp/safs/Directory~", O_RDWR);
+
+	if (fd < 0)
+			return -EIO;
+
+	while (found == 0) {
+		rtn = read(fd, &dir, sizeof(dir));
+		if (rtn != sizeof(dir))
+			break;
+
+		if (strcmp(path1+1, dir.name) == 0 && (dir.inum != 0)) {
+			found = 1;
+			break;
+		}
+	}
+
+	if (found == 0) {
+		close(fd);
+		return -ENOENT;
+	}
+
+	// find not use directory entry
+	index = 0;
+	while (read(fd, &dir, sizeof(dir)) == sizeof(dir)) {
+		if (strcmp(dir.name,".") == 0 || strcmp(dir.name,"..") == 0) {
+			index++;
+			continue;
+		}
+		if (dir.inum == 0)
+			break;
+		index++;
+	}
+
+	// create new directory entry
+	memset(&newDir, 0, sizeof(dir));
+	strcpy(newDir.name, path2+1);
+	strcpy(newDir.storage, dir.storage);
+	newDir.inum = dir.inum;
+
+	// write directory entry
+	if (lseek(fd, index * sizeof(dir), SEEK_SET) < 0) {
+		close(fd);
+		return -EIO;
+	}
+	if (write(fd, &newDir, sizeof(dir)) != sizeof(dir)) {
+		close(fd);
+		return -EIO;
+	}
+
+	// increment inode link count
+	read_inode(dir.inum, &st);
+	st.st_nlink = st.st_nlink + 1;
+	write_inode(dir.inum, st);
+
+	close(fd);
+	return 0;
 }
 
 int safs_chmod (const char *path, mode_t mode){
-  // TBD
-  return 0;
+	  struct safs_dir_entry dir;
+	  struct stat st;
+	  int index = 0;
+	  int found = 0;
+	  int fd;
+	  int rtn;
+
+	  fd = open("/tmp/safs/Directory~", O_RDWR);
+	  if (fd < 0)
+	    return -EIO;
+
+	  while (read(fd, &dir, sizeof(dir)) == sizeof(dir)) {
+	    if (strcmp(path+1, dir.name) == 0 && (dir.inum != 0)) {
+	      read_inode(dir.inum, &st);
+	      st.st_mode = mode;
+	      write_inode(dir.inum, st);
+	      found = 1;
+	      break;
+	    }
+	    index++;
+	  }
+
+	  close(fd);
+	  if (found)
+		  return 0;
+	  else
+		  return -ENOENT;
 }
 
 int safs_chown (const char *path, uid_t uid, gid_t gid){
-  // TBD
-  return 0;
+	// TBD
+	return 0;
 }
 
 int safs_utimens (const char *path, const struct timespec tv[2]){
@@ -122,13 +210,38 @@ int safs_utime (const char *path, struct utimbuf *tb){
 }
 
 int safs_truncate (const char *path, off_t off){
-  // TBD
-    return 0;
+	safs_ftruncate(path, off, NULL);
 }
 
 int safs_ftruncate (const char *path, off_t off, struct fuse_file_info *fi){
-  // TBD
-  return 0;
+	  struct safs_dir_entry dir;
+	  struct stat st;
+	  char ch = 0;
+	  int fd;
+
+	  fd = open("/tmp/safs/Directory~", O_RDWR);
+	  if (fd < 0)
+	    return -EIO;
+
+	  // read directory to find file
+	  while (read(fd, &dir, sizeof(dir)) == sizeof(dir)) {
+	    if (strcmp(path+1, dir.name) == 0 && (dir.inum != 0)) {
+	      read_inode(dir.inum, &st);
+	      if (st.st_size != off) {
+	    	  if (st.st_size < off) {
+	    		  // extend file to offset
+	    		  safs_write(path, &ch, 1, off, fi);
+	    	  }
+	    	  st.st_size = off;
+	    	  write_inode(dir.inum, st);
+	      }
+	      close(fd);
+	      return 0;
+	    }
+	  }
+
+	  close(fd);
+	  return -ENOENT;
 }
 
 int safs_setattr (const char * path, const char *name, const char *value, size_t size, int flag){
@@ -156,10 +269,6 @@ int safs_unlink (const char *path) {
       st.st_nlink = st.st_nlink - 1;
       write_inode(dir.inum, st);
 
-      // reference count not zero
-      if (st.st_nlink != 0)
-        return 0;
-
       // free directory enter
       dir.inum = 0;
       rtn = lseek(fd, index * sizeof(dir), SEEK_SET);
@@ -170,6 +279,9 @@ int safs_unlink (const char *path) {
 
       rtn = write(fd, &dir, sizeof(dir));
       close(fd);
+
+			if (st.st_nlink != 0)
+				return 0; // reference count not zero
 
       // found, remove file storage
       strcpy(filePath,"/tmp/safs/");
@@ -245,6 +357,7 @@ int safs_mknod(const char *filename, mode_t mode, dev_t dev){
   // make new directory entry
   memset(&dir, 0, sizeof(dir));
   strcpy(dir.name, filename+1);
+	strcpy(dir.storage, filename+1);
   dir.inum = st.st_ino;
 
   // write inode
@@ -304,13 +417,11 @@ int safs_write (const char *path, const char *buf, size_t size, off_t offset, st
   st.st_size = offset + size;
   clock_gettime(CLOCK_REALTIME, &st.st_atim);
   clock_gettime(CLOCK_REALTIME, &st.st_mtim);
-  rtn = lseek(fd, cnt * sizeof(dir), SEEK_SET);
-  rtn = write(fd, &dir, sizeof(dir));
   write_inode(dir.inum, st);
 
   // write file
   strcpy(filePath,"/tmp/safs/");
-  strcat(filePath, dir.name);
+  strcat(filePath, dir.storage);
 
   fd = open(filePath, O_WRONLY);
   if (fd < 0)
@@ -348,9 +459,8 @@ static int safs_getattr(const char *path, struct stat *stbuf) {
       }
     }
     res = -ENOENT;
+    close(fd);
   }
-
-  close(fd);
   return res;
 }
 
@@ -389,6 +499,7 @@ static int safs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off
 ////////////////////////////////////////////////////////////////////////////////
 static int safs_open(const char *path, struct fuse_file_info *fi) {
   struct safs_dir_entry dir;
+  struct stat st;
   int fd;
 
   fd = open("/tmp/safs/Directory~", O_RDWR);
@@ -398,9 +509,26 @@ static int safs_open(const char *path, struct fuse_file_info *fi) {
   // read directory to find file
   while (read(fd, &dir, sizeof(dir)) == sizeof(dir)) {
     if (strcmp(path+1, dir.name) == 0 && (dir.inum != 0)) {
+      read_inode(dir.inum, &st);
+      if ((fi->flags & O_RDONLY) && (st.st_mode & 0444) == 0) {
+    	  close(fd);
+    	  return -EPERM;
+      }
+      if ((fi->flags & O_WRONLY) && (st.st_mode & 0222) == 0) {
+    	  close(fd);
+    	  return -EPERM;
+      }
+      if (fi->flags & O_TRUNC) {
+    	  st.st_size = 0;
+    	  write_inode(dir.inum, st);
+      }
       close(fd);
       return 0;
     }
+  }
+
+  if (fi->flags & O_CREAT) {
+	  safs_mknod(path, 0666, 0);
   }
 
   close(fd);
@@ -411,36 +539,52 @@ static int safs_open(const char *path, struct fuse_file_info *fi) {
 // Read a file.
 ////////////////////////////////////////////////////////////////////////////////
 static int safs_read(const char *path, char *buf, size_t size, off_t offset, struct fuse_file_info *fi) {
-  int fd;
-  int rtn = 0;
-  char saPath[80] = {0};
-  static char iobuf[4096];
+	int fd;
+	int cnt = 0;
+	struct safs_dir_entry dir;
+	int found = 0;
+	int rtn;
+	struct stat st;
 
-  strcat(saPath,"/tmp/safs");
-  strcat(saPath, path);
+	fd = open("/tmp/safs/Directory~", O_RDWR);
 
-  fd = open(saPath, O_RDONLY);
-  if (fd < 0)
-    return -EIO;
+	if (fd < 0)
+		return -EIO;
 
-  // seek to position
-  if (lseek(fd, offset, SEEK_SET) == ENXIO) {
-    close(fd);
-    return 0;
-  }
+	// find directory entry
+	while (read(fd, &dir, sizeof(dir)) == sizeof(dir)) {
+		if (strcmp(path+1, dir.name) == 0 && (dir.inum != 0)) {
+			found = 1;
+			break;
+		}
+		cnt = cnt + 1;
+	}
 
-  // read content
-  rtn = read(fd, &iobuf, size);
-  if (rtn < 0) {
-    close(fd);
-    return(rtn);
-  }
+	if (found == 0) {
+		close(fd);
+		return -ENOENT;
+	}
+	close(fd);
 
-  // copy to user space
-  memcpy(buf, iobuf, rtn);
+	// update inode
+	read_inode(dir.inum, &st);
+	clock_gettime(CLOCK_REALTIME, &st.st_atim);
+	write_inode(dir.inum, st);
 
-  close(fd);
-  return rtn;
+
+	// read file
+	strcpy(filePath,"/tmp/safs/");
+	strcat(filePath, dir.storage);
+	fd = open(filePath, O_RDONLY);
+	if (fd < 0)
+		return -EIO;
+	lseek(fd, offset, SEEK_SET);
+	rtn = read(fd,buf, size);
+
+	// copy to user space
+	memcpy(buf, buf, rtn);
+	close(fd);
+	return(rtn);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
