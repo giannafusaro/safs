@@ -115,7 +115,7 @@ int safs_link (const char *path1, const char *path2){
   int found = 0;
   int index;
 
-  fd = open("/tmp/safs/Directory~", O_RDWR);
+  fd = open(directory_path, O_RDWR);
 
   if (fd < 0)
       return -EIO;
@@ -173,6 +173,9 @@ int safs_link (const char *path1, const char *path2){
   return 0;
 }
 
+////////////////////////////////////////////////////////////////////////////////
+// Chmod
+////////////////////////////////////////////////////////////////////////////////
 int safs_chmod (const char *path, mode_t mode){
     struct safs_dir_entry dir;
     struct stat st;
@@ -180,7 +183,7 @@ int safs_chmod (const char *path, mode_t mode){
     int found = 0;
     int fd;
 
-    fd = open("/tmp/safs/Directory~", O_RDWR);
+    fd = open(directory_path, O_RDWR);
     if (fd < 0)
       return -EIO;
 
@@ -202,6 +205,9 @@ int safs_chmod (const char *path, mode_t mode){
       return -ENOENT;
 }
 
+////////////////////////////////////////////////////////////////////////////////
+// TODO
+////////////////////////////////////////////////////////////////////////////////
 int safs_chown (const char *path, uid_t uid, gid_t gid){
   // TBD
   return 0;
@@ -212,17 +218,28 @@ int safs_utimens (const char *path, const struct timespec tv[2]){
   return 0;
 }
 
+int safs_setattr (const char * path, const char *name, const char *value, size_t size, int flag){
+  // TBD
+  return 0;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Truncate
+////////////////////////////////////////////////////////////////////////////////
 int safs_truncate (const char *path, off_t off) {
   return safs_ftruncate(path, off, NULL);
 }
 
+////////////////////////////////////////////////////////////////////////////////
+// FTruncate
+////////////////////////////////////////////////////////////////////////////////
 int safs_ftruncate (const char *path, off_t off, struct fuse_file_info *fi){
     struct safs_dir_entry dir;
     struct stat st;
     char ch = 0;
     int fd;
 
-    fd = open("/tmp/safs/Directory~", O_RDWR);
+    fd = open(directory_path, O_RDWR);
     if (fd < 0)
       return -EIO;
 
@@ -245,11 +262,6 @@ int safs_ftruncate (const char *path, off_t off, struct fuse_file_info *fi){
 
     close(fd);
     return -ENOENT;
-}
-
-int safs_setattr (const char * path, const char *name, const char *value, size_t size, int flag){
-  // TBD
-  return 0;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -287,11 +299,6 @@ int safs_unlink (const char *path) {
         return 0; // reference count not zero
 
       // found, remove file storage
-      // char file_path[];
-      // strcat(file_path, safs_path);
-      // strcat(file_path, dir.name)
-
-      char filePath[80];
       strcpy(filePath, safs_path);
       strcat(filePath, dir.name);
       unlink(filePath);
