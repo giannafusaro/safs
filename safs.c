@@ -242,8 +242,7 @@ int safs_utimens (const char *path, const struct timespec tv[2]){
     return -ENOENT;
 }
 
-int safs_setattr (const char * path, const char *name, const char 
-*value, size_t size, int flag){
+int safs_setattr (const char * path, const char *name, const char *value, size_t size, int flag){
   // TBD
   return 0;
 }
@@ -425,8 +424,7 @@ int safs_mknod(const char *filename, mode_t mode, dev_t dev){
 ////////////////////////////////////////////////////////////////////////////////
 // Write to a file
 ////////////////////////////////////////////////////////////////////////////////
-int safs_write (const char *path, const char *buf, size_t size, off_t 
-offset, struct fuse_file_info *fi) {
+int safs_write (const char *path, const char *buf, size_t size, off_t offset, struct fuse_file_info *fi) {
   struct safs_dir_entry dir;
   struct stat st;
   int found = 0;
@@ -508,8 +506,7 @@ static int safs_getattr(const char *path, struct stat *stbuf) {
 ////////////////////////////////////////////////////////////////////////////////
 // Read Directory
 ////////////////////////////////////////////////////////////////////////////////
-static int safs_readdir(const char *path, void *buf, fuse_fill_dir_t 
-filler, off_t offset, struct fuse_file_info *fi) {
+static int safs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *fi) {
   struct safs_dir_entry dir;
   struct stat st;
   int fd_dir;
@@ -583,8 +580,7 @@ static int safs_open(const char *path, struct fuse_file_info *fi) {
 ////////////////////////////////////////////////////////////////////////////////
 // Read a file.
 ////////////////////////////////////////////////////////////////////////////////
-static int safs_read(const char *path, char *buf, size_t size, off_t 
-offset, struct fuse_file_info *fi) {
+static int safs_read(const char *path, char *buf, size_t size, off_t offset, struct fuse_file_info *fi) {
   int fd;
   int cnt = 0;
   struct safs_dir_entry dir;
