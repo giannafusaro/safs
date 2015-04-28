@@ -51,7 +51,7 @@ static struct fuse_operations safs_oper = {
 // Write inode stat from inode file
 ////////////////////////////////////////////////////////////////////////////////
 int write_inode(const unsigned int in, struct stat st) {
-  int fd;   /* file descriptor */
+  int fd;  /* file descriptor */
   int rtn;  /* returned value */
 
   fd = open(inodes_path, O_CREAT|O_RDWR, 0666);
@@ -78,7 +78,7 @@ int write_inode(const unsigned int in, struct stat st) {
 // Read inode stat from inode file
 ////////////////////////////////////////////////////////////////////////////////
 int read_inode(const unsigned int in, struct stat *stp) {
-  int fd;   /* file descriptor */
+  int fd;  /* file descriptor */
   int rtn;  /* returned value */
 
   fd = open(inodes_path, O_CREAT|O_RDWR, 0666);
@@ -136,8 +136,15 @@ int safs_link (const char *path1, const char *path2){
     return -ENOENT;
   }
 
+  // create new directory entry
+  memset(&newDir, 0, sizeof(dir));
+  strcpy(newDir.name, path2+1);
+  strcpy(newDir.storage, dir.storage);
+  newDir.inum = dir.inum;
+
   // find not use directory entry
   index = 0;
+  lseek(fd, 0, SEEK_SET);
   while (read(fd, &dir, sizeof(dir)) == sizeof(dir)) {
     if (strcmp(dir.name,".") == 0 || strcmp(dir.name,"..") == 0) {
       index++;
@@ -147,12 +154,6 @@ int safs_link (const char *path1, const char *path2){
       break;
     index++;
   }
-
-  // create new directory entry
-  memset(&newDir, 0, sizeof(dir));
-  strcpy(newDir.name, path2+1);
-  strcpy(newDir.storage, dir.storage);
-  newDir.inum = dir.inum;
 
   // write directory entry
   if (lseek(fd, index * sizeof(dir), SEEK_SET) < 0) {
@@ -214,11 +215,35 @@ int safs_chown (const char *path, uid_t uid, gid_t gid){
 }
 
 int safs_utimens (const char *path, const struct timespec tv[2]){
-  // TBD
-  return 0;
+    struct safs_dir_entry dir;
+    struct timespec tm;
+    struct stat st;
+    char ch = 0;
+    int fd;
+
+    fd = open(directory_path, O_RDWR);
+    if (fd < 0)
+      return -EIO;
+
+    // read directory to find file
+    while (read(fd, &dir, sizeof(dir)) == sizeof(dir)) {
+      if (strcmp(path+1, dir.name) == 0 && (dir.inum != 0)) {
+        read_inode(dir.inum, &st);
+        clock_gettime(CLOCK_REALTIME, &tm);
+        st.st_atim = tv[0];
+        st.st_mtim = tv[1];
+        write_inode(dir.inum, st);
+        close(fd);
+        return 0;
+      }
+    }
+
+    close(fd);
+    return -ENOENT;
 }
 
-int safs_setattr (const char * path, const char *name, const char *value, size_t size, int flag){
+int safs_setattr (const char * path, const char *name, const char 
+*value, size_t size, int flag){
   // TBD
   return 0;
 }
@@ -400,7 +425,8 @@ int safs_mknod(const char *filename, mode_t mode, dev_t dev){
 ////////////////////////////////////////////////////////////////////////////////
 // Write to a file
 ////////////////////////////////////////////////////////////////////////////////
-int safs_write (const char *path, const char *buf, size_t size, off_t offset, struct fuse_file_info *fi) {
+int safs_write (const char *path, const char *buf, size_t size, off_t 
+offset, struct fuse_file_info *fi) {
   struct safs_dir_entry dir;
   struct stat st;
   int found = 0;
@@ -482,7 +508,8 @@ static int safs_getattr(const char *path, struct stat *stbuf) {
 ////////////////////////////////////////////////////////////////////////////////
 // Read Directory
 ////////////////////////////////////////////////////////////////////////////////
-static int safs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *fi) {
+static int safs_readdir(const char *path, void *buf, fuse_fill_dir_t 
+filler, off_t offset, struct fuse_file_info *fi) {
   struct safs_dir_entry dir;
   struct stat st;
   int fd_dir;
@@ -556,7 +583,8 @@ static int safs_open(const char *path, struct fuse_file_info *fi) {
 ////////////////////////////////////////////////////////////////////////////////
 // Read a file.
 ////////////////////////////////////////////////////////////////////////////////
-static int safs_read(const char *path, char *buf, size_t size, off_t offset, struct fuse_file_info *fi) {
+static int safs_read(const char *path, char *buf, size_t size, off_t 
+offset, struct fuse_file_info *fi) {
   int fd;
   int cnt = 0;
   struct safs_dir_entry dir;
