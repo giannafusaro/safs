@@ -28,12 +28,13 @@ struct safs_dentry {
 };
 
 // Counters
-int inode_counter = 1;
+int inode_number = 1;
 
 // Paths
 char safs_path[] = "/tmp/safs/";
 char inodes_path[] = "/tmp/safs/Inodes~";
 char directory_path[] = "/tmp/safs/Directory~";
+char tmp_directory_path[] = "/tmp/safs/.Directory~";
 
 // Operations Mapping
 static struct fuse_operations safs_oper = {
@@ -60,9 +61,14 @@ int write_inode(const unsigned int in, struct stat st) {
   int fd;  /* file descriptor */
   int rtn;  /* returned value */
 
+  printf("\n<write inode>\n");
+  printf("  st.ino: %zu \n", st.st_ino);
+
   fd = open(inodes_path, O_CREAT|O_RDWR, 0666);
   if (fd < 0)
     return fd;
+
+  printf("  fd: %d \n", fd);
 
   rtn = lseek(fd, in * sizeof(st), SEEK_SET);
   if (rtn < 0) {
@@ -70,12 +76,16 @@ int write_inode(const unsigned int in, struct stat st) {
     return rtn;
   }
 
+  printf("  lseek rtn: %d \n", rtn);
+
   rtn = write(fd, &st, sizeof(st));
   if (rtn != sizeof(st)) {
     close(fd);
     return rtn;
   }
 
+  printf("  write rtn: %d \n", rtn);
+  printf("</write node>\n\n");
   close(fd);
   return 0;
 }
@@ -123,7 +133,7 @@ int safs_link (const char *path1, const char *path2){
   fd = open(directory_path, O_RDWR);
 
   if (fd < 0)
-      return -EIO;
+    return -EIO;
 
   while (found == 0) {
     rtn = read(fd, &dir, sizeof(dir));
@@ -262,82 +272,30 @@ int safs_truncate (const char *path, off_t off) {
 // FTruncate
 ////////////////////////////////////////////////////////////////////////////////
 int safs_ftruncate (const char *path, off_t off, struct fuse_file_info *fi){
-    struct safs_dir_entry dir;
-    struct stat st;
-    char ch = 0;
-    int fd;
-
-    fd = open(directory_path, O_RDWR);
-    if (fd < 0)
-      return -EIO;
-
-    // read directory to find file
-    while (read(fd, &dir, sizeof(dir)) == sizeof(dir)) {
-      if (strcmp(path+1, dir.name) == 0 && (dir.inum != 0)) {
-        read_inode(dir.inum, &st);
-        if (st.st_size != off) {
-          if (st.st_size < off) {
-            // extend file to offset
-            safs_write(path, &ch, 1, off, fi);
-          }
-          st.st_size = off;
-          write_inode(dir.inum, st);
-        }
-        close(fd);
-        return 0;
-      }
-    }
-
-    close(fd);
-    return -ENOENT;
-}
-
-////////////////////////////////////////////////////////////////////////////////
-// Unlink (delete)
-////////////////////////////////////////////////////////////////////////////////
-int safs_unlink (const char *path) {
   struct safs_dir_entry dir;
   struct stat st;
-  int index = 0;
+  char ch = 0;
   int fd;
-  int rtn;
 
   fd = open(directory_path, O_RDWR);
   if (fd < 0)
     return -EIO;
 
+  // read directory to find file
   while (read(fd, &dir, sizeof(dir)) == sizeof(dir)) {
     if (strcmp(path+1, dir.name) == 0 && (dir.inum != 0)) {
       read_inode(dir.inum, &st);
-      st.st_nlink = st.st_nlink - 1;
-      write_inode(dir.inum, st);
-
-      // free directory enter
-      dir.inum = 0;
-      rtn = lseek(fd, index * sizeof(dir), SEEK_SET);
-      if (rtn < 0) {
-        close(fd);
-        return -EIO;
+      if (st.st_size != off) {
+        if (st.st_size < off) {
+          // extend file to offset
+          safs_write(path, &ch, 1, off, fi);
+        }
+        st.st_size = off;
+        write_inode(dir.inum, st);
       }
-
-      rtn = write(fd, &dir, sizeof(dir));
       close(fd);
-
-      if (st.st_nlink != 0)
-        return 0; // reference count not zero
-
-      // found, remove file storage
-      strcpy(filePath, safs_path);
-      strcat(filePath, dir.name);
-      unlink(filePath);
-
-      if (rtn != sizeof(dir)) {
-        return -EIO;
-      } else {
-        return 0;
-      }
+      return 0;
     }
-    index++;
   }
 
   close(fd);
@@ -345,83 +303,153 @@ int safs_unlink (const char *path) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+// Unlink (delete)
+////////////////////////////////////////////////////////////////////////////////
+int safs_unlink (const char *path) {
+  struct safs_dentry dentry;
+  struct stat metadata;
+  int tmp_directory;
+  int new_directory;
+  int new_inode_number = 2;
+
+  // Rename Directory~ to .Directory~
+  if (rename(directory_path, tmp_directory_path) < 0)
+    return -errno;
+
+  // Get .Directory~ file descriptor
+  tmp_directory = open(tmp_directory_path, O_RDWR);
+  if (tmp_directory < 0)
+    return -errno;
+
+  // Create new Directory~ file descriptor
+  new_directory = open(directory_path, O_CREAT|O_RDWR, 0666);
+  if (new_directory < 0)
+    return -errno;
+
+  // Build a new Directory~
+  while (read(tmp_directory, &dentry, sizeof(dentry)) == sizeof(dentry)) {
+    if (dentry.name[0] != '\0') {
+      printf("  [unlink loop] %s -> %s \n", path+1, dentry.name);
+      if (strcmp(path+1, dentry.name) == 0) {
+
+        // Remove hardlinks
+        read_inode(dentry.inum, &metadata);
+        metadata.st_nlink -= 1;
+        write_inode(dentry.inum, metadata);
+
+        // Remove actual file from safs_path
+        strcpy(filePath, safs_path);
+        strcat(filePath, dentry.name);
+        printf("filePath: %s \n", filePath);
+        dentry.inum = 0;
+        if (unlink(filePath) < 0)
+          return -errno;
+
+      } else {
+
+        // Calculate new offset
+        if (lseek(new_directory, new_inode_number * sizeof(dentry), SEEK_SET) < 0) {
+          close(new_directory);
+          return -errno;
+        }
+
+        // Write to the new Directory~
+        if (write(new_directory, &dentry, sizeof(dentry)) != sizeof(dentry)) {
+          close(new_directory);
+          return -errno;
+        } else {
+          new_inode_number++;
+        }
+      }
+    }
+  }
+
+  close(new_directory);
+  close(tmp_directory);
+  if (unlink(tmp_directory_path) < 0) {
+    return -errno;
+  } else {
+    return 0;
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////
 // Make Node
 ////////////////////////////////////////////////////////////////////////////////
 int safs_mknod(const char *filename, mode_t mode, dev_t dev){
-  struct safs_dir_entry dir;
-  struct timespec tm;
-  struct stat st;
-  int index = 0;
-  int fd;
-  int rtn;
+  struct safs_dentry dentry;
+  struct timespec timestamp;
+  struct stat metadata;
+  int directory;
 
+  printf("\n<MKNOD>\n");
+
+  // Mode must be a regular file
   if ((mode & S_IFMT) != S_IFREG)
     return -EPERM;
 
-  fd = open(directory_path, O_RDWR, 0666);
-  if (fd < 0)
+  // Get Directory~ file descriptor
+  directory = open(directory_path, O_RDWR, 0666);
+  if (directory < 0)
     return -EIO;
 
-  // find not use directory entry
-  while (read(fd, &dir, sizeof(dir)) == sizeof(dir)) {
-    if (strcmp(dir.name,".") == 0 || strcmp(dir.name,"..") == 0) {
-      index++;
-      continue;
-    }
-    if (dir.inum == 0)
-      break;
-
-    index++;
-  }
+  printf("new inode number: %d \n", inode_number);
 
   // create file to save contents
   strcpy(filePath, safs_path);
-  strcat(filePath, filename);
+  strcat(filePath, filename+1);
 
-  rtn = open(filePath, O_CREAT|O_TRUNC|O_RDONLY, mode);
-  if (rtn < 0) {
-    close(fd);
+  printf("filepath: %s \n", filePath);
+
+  // Create file
+  if (open(filePath, O_CREAT|O_TRUNC|O_RDONLY, mode) < 0) {
+    close(directory);
     return -EIO;
   }
-  close(rtn);
 
-  // initialize stat
-  st.st_mode = mode;
-  st.st_nlink = 1;
-  st.st_size = 0;
-  st.st_uid = getuid();
-  st.st_gid = getgid();
-  clock_gettime(CLOCK_REALTIME, &tm);
-  st.st_atim = tm;
-  st.st_mtim = tm;
-  st.st_ctim = tm;
-  st.st_ino = inode_counter++;
+  // Set Metadata
+  metadata.st_mode = mode;
+  metadata.st_nlink = 1;
+  metadata.st_size = 0;
+  metadata.st_uid = getuid();
+  metadata.st_gid = getgid();
+  clock_gettime(CLOCK_REALTIME, &timestamp);
+  metadata.st_atim = timestamp;
+  metadata.st_mtim = timestamp;
+  metadata.st_ctim = timestamp;
+  metadata.st_ino = inode_number;
 
   // make new directory entry
-  memset(&dir, 0, sizeof(dir));
-  strcpy(dir.name, filename+1);
-  strcpy(dir.storage, filename+1);
-  dir.inum = st.st_ino;
+  memset(&dentry, 0, sizeof(dentry));
+  strcpy(dentry.name, filename+1);
+  strcpy(dentry.storage, filename+1);
+  dentry.inum = metadata.st_ino;
+
+  printf("dentry.inum: %d \nmetadata.st_ino: %zu \n", dentry.inum, metadata.st_ino);
 
   // write inode
-  rtn = write_inode(st.st_ino, st);
-  if (rtn != 0) {
-    close(fd);
-    return(rtn);
+  if (write_inode(metadata.st_ino, metadata) != 0) {
+    close(directory);
+    return -EIO;
+  }
+
+  // calculate offset in Directory~ file to write
+  if (lseek(directory, inode_number * sizeof(dentry), SEEK_SET) < 0) {
+    close(directory);
+    return -EIO;
   }
 
   // create directory entry
-  if (lseek(fd, index * sizeof(dir), SEEK_SET) < 0) {
-    close(fd);
+  if (write(directory, &dentry, sizeof(dentry)) != sizeof(dentry)) {
+    close(directory);
     return -EIO;
   }
 
-  if (write(fd, &dir, sizeof(dir)) != sizeof(dir)) {
-    close(fd);
-    return -EIO;
-  }
+  inode_number++;
 
-  close(fd);
+  printf("</MKNOD>\n\n");
+
+  close(directory);
   return 0;
 }
 
@@ -436,18 +464,22 @@ int safs_write (const char *path, const char *buf, size_t size, off_t offset, st
   int fd;
   int rtn;
 
+  printf("\n<write>\n");
+
   fd = open(directory_path, O_RDWR);
   if (fd < 0)
     return -EIO;
 
   // find directory entry
   while (read(fd, &dir, sizeof(dir)) == sizeof(dir)) {
+    printf("  [loop] %s -> %d \n", dir.name, dir.inum);
     if (strcmp(path+1, dir.name) == 0 && (dir.inum != 0)) {
       found = 1;
       break;
     }
     cnt = cnt + 1;
   }
+
 
   if (found == 0) {
     close(fd);
@@ -457,14 +489,19 @@ int safs_write (const char *path, const char *buf, size_t size, off_t offset, st
 
   // update inode
   read_inode(dir.inum, &st);
+  printf("dir.inum: %d \n", dir.inum);
+
   st.st_size = offset + size;
   clock_gettime(CLOCK_REALTIME, &st.st_atim);
   clock_gettime(CLOCK_REALTIME, &st.st_mtim);
   write_inode(dir.inum, st);
 
+  printf("dir.inum: %d \n", dir.inum);
+
   // write file
   strcpy(filePath, safs_path);
   strcat(filePath, dir.storage);
+  printf("filePath: %s \n", filePath);
 
   fd = open(filePath, O_WRONLY);
   if (fd < 0)
@@ -474,6 +511,8 @@ int safs_write (const char *path, const char *buf, size_t size, off_t offset, st
   rtn = write(fd,buf, size);
 
   close(fd);
+  printf("\n</write>\n");
+
   return(rtn);
 }
 
@@ -517,6 +556,9 @@ static int safs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off
   struct stat stat;
   int directory;
 
+  printf("\n<READ DIR>\n");
+  printf("path: %s \n", path);
+
   // Flat file systems don't have folders...
   if (strcmp(path, "/") != 0)
     return -ENOENT;
@@ -526,22 +568,20 @@ static int safs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off
   if (directory < 0)
     return -EIO;
 
-  printf("\n<READ DIR> directory file descriptor: %d \n", directory);
-  printf("path: %s \n", path);
-
   // Add dot entries
   filler(buf, ".", NULL, 0);
   filler(buf, "..", NULL, 0);
 
   // Add remaining dentries
   while (read(directory, &dentry, sizeof(dentry)) == sizeof(dentry)) {
-    printf("while... inum: %d, name: %s \n", dentry.inum, dentry.name);
+    printf("  [loop] inum: %u, name: %s \n", dentry.inum, dentry.name);
     if (dentry.inum != 0) {
       read_inode(dentry.inum, &stat);      // read stat from inode
       filler(buf, dentry.name, &stat, 0);  // give to fuse
     }
   }
   printf("</READ DIR>\n\n");
+
   // Close Directory~ file
   if (directory >= 0)
     close(directory);
@@ -563,11 +603,11 @@ static int safs_open(const char *path, struct fuse_file_info *fi) {
     return -EIO;
 
   printf("\n<OPEN>\n");
-  printf("target path: %s \n", path);
+  printf("path: %s \n", path);
 
   // Check Directory~ for file
   while (read(directory, &dentry, sizeof(dentry)) == sizeof(dentry)) {
-    printf("   [loop] %s \n", dentry.name);
+    printf("   [loop] %s -> %d \n", dentry.name, dentry.inum);
     if (strcmp(path+1, dentry.name) == 0 && (dentry.inum != 0)) {
       printf("   found!\n");
       read_inode(dentry.inum, &metadata); // Get Inode metadata
@@ -595,12 +635,6 @@ static int safs_open(const char *path, struct fuse_file_info *fi) {
       return 0;
     }
   }
-
-  // Create a new node
-  // if (fi->flags & O_CREAT) {
-  //   printf("\n\nCreate a new node! --> %s \n\n", path);
-  //   safs_mknod(path, 0666, 0);
-  // }
 
   close(directory);
   printf("couldn't find node.\n</OPEN>\n\n");
@@ -662,6 +696,8 @@ static int safs_read(const char *path, char *buf, size_t size, off_t offset, str
 // Initialization
 ////////////////////////////////////////////////////////////////////////////////
 static int safs_init() {
+  struct safs_dentry dentry;
+  int directory;
 
   // Create /tmp/safs
   if (mkdir(safs_path, 0777) < 0 && errno != EEXIST) {
@@ -676,11 +712,19 @@ static int safs_init() {
   }
 
   // Create /tmp/safs/Directory~
-  if (open(directory_path, O_CREAT|O_RDWR, 0666) < 0) {
+  directory = open(directory_path, O_CREAT|O_RDWR, 0666);
+  if (directory < 0) {
     printf("Could not create %s \n", directory_path);
     return -errno;
+  } else {
+    // Set the current inode_number
+    while (read(directory, &dentry, sizeof(dentry)) == sizeof(dentry))
+      if (dentry.inum > inode_number)
+        inode_number = dentry.inum;
+    close(directory);
   }
 
+  printf("initial inode number: %d \n", inode_number);
   return 0;
 }
 
