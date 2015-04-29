@@ -22,7 +22,7 @@
       <echo "File"> file
 */
 
-int read_inode(const unsigned int in, struct stat *stp);
+int read_inode(off_t in, struct stat *stp);
 int write_inode(const unsigned int in, struct stat st);
 
 /* SAFS_LINK

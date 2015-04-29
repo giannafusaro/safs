@@ -83,27 +83,28 @@ int write_inode(const unsigned int in, struct stat st) {
 ////////////////////////////////////////////////////////////////////////////////
 // Read inode stat from inode file
 ////////////////////////////////////////////////////////////////////////////////
-int read_inode(const unsigned int in, struct stat *stp) {
-  int inode;   /* file descriptor */
-  int rtn;  /* returned value */
+int read_inode(off_t offset, struct stat *metadata) {
+  int inode;
 
+  // Get Inodes~ file descriptor
   inode = open(inodes_path, O_CREAT|O_RDWR, 0666);
   if (inode < 0)
     return inode;
 
-  rtn = lseek(fd, in * sizeof(struct stat), SEEK_SET);
-  if (rtn < 0) {
-    close(fd);
-    return rtn;
+  // Determine offset location (in bytes from beginning of file)
+  if (lseek(inode, offset * sizeof(struct stat), SEEK_SET) < 0) {
+    close(inode);
+    return -errno;
   }
 
-  rtn = read(fd, stp, sizeof(struct stat));
-  if (rtn != sizeof(struct stat)) {
-    close(fd);
-    return rtn;
+  // Read bytes from inode into the buffer. Offset is incremented by
+  // number of bytes read. If current offset == || > EOF, no bytes are read.
+  if (read(inode, metadata, sizeof(struct stat)) != sizeof(struct stat)) {
+    close(inode);
+    return -errno;
   }
 
-  close(fd);
+  close(inode);
   return 0;
 }
 
