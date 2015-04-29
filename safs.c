@@ -223,7 +223,6 @@ int safs_utimens (const char *path, const struct timespec tv[2]){
     struct safs_dir_entry dir;
     struct timespec tm;
     struct stat st;
-    char ch = 0;
     int fd;
 
     fd = open(directory_path, O_RDWR);
