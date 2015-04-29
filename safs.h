@@ -125,6 +125,10 @@ return values:
   - return 0 => success | return > 1 if error */
 int safs_chown (const char *path, uid_t uid, gid_t gid);
 
+/* RENAME
+rename file oldname to newname
+  - return 0 => success | return > 1 if error */
+int safs_rename (const char *oldname, const char *newname);
 
 
 /* PERMISSIONS
