@@ -21,6 +21,12 @@ struct safs_dir_entry {
   unsigned int inum;
 };
 
+struct safs_dentry {
+  char name[32];
+  char storage[32];
+  unsigned int inum;
+};
+
 // Counters
 int inode_counter = 1;
 
@@ -78,14 +84,12 @@ int write_inode(const unsigned int in, struct stat st) {
 // Read inode stat from inode file
 ////////////////////////////////////////////////////////////////////////////////
 int read_inode(const unsigned int in, struct stat *stp) {
-  int fd;  /* file descriptor */
+  int inode;   /* file descriptor */
   int rtn;  /* returned value */
 
-  fd = open(inodes_path, O_CREAT|O_RDWR, 0666);
-
-  // Inodes file not found
-  if (fd < 0)
-    return fd;
+  inode = open(inodes_path, O_CREAT|O_RDWR, 0666);
+  if (inode < 0)
+    return inode;
 
   rtn = lseek(fd, in * sizeof(struct stat), SEEK_SET);
   if (rtn < 0) {
@@ -476,62 +480,71 @@ int safs_write (const char *path, const char *buf, size_t size, off_t offset, st
 ////////////////////////////////////////////////////////////////////////////////
 // Get file attributes.
 ////////////////////////////////////////////////////////////////////////////////
-static int safs_getattr(const char *path, struct stat *stbuf) {
-  struct safs_dir_entry dir;
-  int res = 0;
-  int fd;
+static int safs_getattr(const char *path, struct stat *metadata) {
+  struct safs_dentry dentry;
+  int directory;
 
+  // Attributes for root node
   if (strcmp(path, "/") == 0) {
-    stbuf->st_mode = S_IFDIR | 0755;
-    stbuf->st_nlink = 2;
-  } else {
-    fd = open(directory_path, O_RDWR,0666);
-    if (fd < 0)
-      return -EIO;
-
-    // find directory entry
-    while (read(fd, &dir, sizeof(dir)) == sizeof(dir)) {
-      if (strcmp(dir.name,path+1) == 0 && (dir.inum != 0)) {
-        read_inode(dir.inum, stbuf);
-        close(fd);
-        return 0;
-      }
-    }
-    res = -ENOENT;
-    close(fd);
+    metadata->st_mode = S_IFDIR | 0755;
+    metadata->st_nlink = 2;
+    return 0;
   }
-  return res;
+
+  // get Directory~ file descriptor
+  directory = open(directory_path, O_RDWR, 0666);
+  if (directory < 0)
+    return -EIO;
+
+  // find directory entry
+  while (read(directory, &dentry, sizeof(dentry)) == sizeof(dentry)) {
+    if (strcmp(dentry.name,path+1) == 0 && (dentry.inum != 0)) {
+      read_inode(dentry.inum, metadata);
+      close(directory);
+      return 0;
+    }
+  }
+
+  close(directory);
+  return -ENOENT;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 // Read Directory
 ////////////////////////////////////////////////////////////////////////////////
 static int safs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *fi) {
-  struct safs_dir_entry dir;
-  struct stat st;
-  int fd_dir;
+  struct safs_dentry dentry;
+  struct stat stat;
+  int directory;
 
+  // Flat file systems don't have folders...
   if (strcmp(path, "/") != 0)
     return -ENOENT;
 
-  fd_dir = open(directory_path, O_RDWR, 0666);
-  if (fd_dir < 0)
+  // Get Directory~ file descriptor
+  directory = open(directory_path, O_RDWR, 0666);
+  if (directory < 0)
     return -EIO;
 
+  printf("\n<READ DIR> directory file descriptor: %d \n", directory);
+  printf("path: %s \n", path);
+
+  // Add dot entries
   filler(buf, ".", NULL, 0);
   filler(buf, "..", NULL, 0);
 
-  while (read(fd_dir, &dir, sizeof(dir)) == sizeof(dir)) {
-    if (dir.inum != 0) {
-      // read stat from inode
-      read_inode(dir.inum, &st);
-      // give to fuse
-      filler(buf, dir.name, &st, 0);
+  // Add remaining dentries
+  while (read(directory, &dentry, sizeof(dentry)) == sizeof(dentry)) {
+    printf("while... inum: %d, name: %s \n", dentry.inum, dentry.name);
+    if (dentry.inum != 0) {
+      read_inode(dentry.inum, &stat);      // read stat from inode
+      filler(buf, dentry.name, &stat, 0);  // give to fuse
     }
   }
-
-  if (fd_dir >= 0)
-    close(fd_dir);
+  printf("</READ DIR>\n\n");
+  // Close Directory~ file
+  if (directory >= 0)
+    close(directory);
 
   return 0;
 }
@@ -540,40 +553,57 @@ static int safs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off
 // Open a file.
 ////////////////////////////////////////////////////////////////////////////////
 static int safs_open(const char *path, struct fuse_file_info *fi) {
-  struct safs_dir_entry dir;
-  struct stat st;
-  int fd;
+  struct safs_dentry dentry;
+  struct stat metadata;
+  int directory;
 
-  fd = open(directory_path, O_RDWR);
-  if (fd < 0)
+  // Get Directory~ file descriptor
+  directory = open(directory_path, O_RDWR);
+  if (directory < 0)
     return -EIO;
 
-  // read directory to find file
-  while (read(fd, &dir, sizeof(dir)) == sizeof(dir)) {
-    if (strcmp(path+1, dir.name) == 0 && (dir.inum != 0)) {
-      read_inode(dir.inum, &st);
-      if ((fi->flags & O_RDONLY) && (st.st_mode & 0444) == 0) {
-        close(fd);
+  printf("\n<OPEN>\n");
+  printf("target path: %s \n", path);
+
+  // Check Directory~ for file
+  while (read(directory, &dentry, sizeof(dentry)) == sizeof(dentry)) {
+    printf("   [loop] %s \n", dentry.name);
+    if (strcmp(path+1, dentry.name) == 0 && (dentry.inum != 0)) {
+      printf("   found!\n");
+      read_inode(dentry.inum, &metadata); // Get Inode metadata
+
+      // Can't write to a read-only file
+      if ((fi->flags & O_RDONLY) && (metadata.st_mode & 0444) == 0) {
+        close(directory);
         return -EPERM;
       }
-      if ((fi->flags & O_WRONLY) && (st.st_mode & 0222) == 0) {
-        close(fd);
+
+      // Can't read from a write-only file
+      if ((fi->flags & O_WRONLY) && (metadata.st_mode & 0222) == 0) {
+        close(directory);
         return -EPERM;
       }
+
+      // Truncate file
       if (fi->flags & O_TRUNC) {
-        st.st_size = 0;
-        write_inode(dir.inum, st);
+        metadata.st_size = 0;
+        write_inode(dentry.inum, metadata);
       }
-      close(fd);
+
+      close(directory);
+      printf("</OPEN>\n\n");
       return 0;
     }
   }
 
-  if (fi->flags & O_CREAT) {
-    safs_mknod(path, 0666, 0);
-  }
+  // Create a new node
+  // if (fi->flags & O_CREAT) {
+  //   printf("\n\nCreate a new node! --> %s \n\n", path);
+  //   safs_mknod(path, 0666, 0);
+  // }
 
-  close(fd);
+  close(directory);
+  printf("couldn't find node.\n</OPEN>\n\n");
   return -ENOENT;
 }
 
