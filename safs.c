@@ -50,8 +50,40 @@ static struct fuse_operations safs_oper = {
   .truncate = safs_truncate,
   .ftruncate = safs_ftruncate,
   .unlink = safs_unlink,
-  .link = safs_link
+  .link = safs_link,
+  .rename = safs_rename
 };
+
+////////////////////////////////////////////////////////////////////////////////
+// Rename file
+////////////////////////////////////////////////////////////////////////////////
+int safs_rename(const char *oldname, const char *newname) {
+    struct safs_dir_entry dir;
+    struct timespec tm;
+    struct stat st;
+    int index=0;
+    char ch = 0;
+    int fd;
+
+    fd = open(directory_path, O_RDWR);
+    if (fd < 0)
+      return -EIO;
+
+    // read directory to find file
+    while (read(fd, &dir, sizeof(dir)) == sizeof(dir)) {
+      if (strcmp(oldname+1, dir.name) == 0 && (dir.inum != 0)) {
+    	strcpy(dir.name, newname+1);
+    	lseek(fd, index * sizeof(dir), SEEK_SET);
+    	write(fd, &dir, sizeof(dir));
+        close(fd);
+        return 0;
+      }
+      index++;
+    }
+
+    close(fd);
+    return -ENOENT;
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 // Write inode stat from inode file
@@ -500,6 +532,7 @@ static int safs_getattr(const char *path, struct stat *metadata) {
   while (read(directory, &dentry, sizeof(dentry)) == sizeof(dentry)) {
     if (strcmp(dentry.name,path+1) == 0 && (dentry.inum != 0)) {
       read_inode(dentry.inum, metadata);
+      metadata->st_blocks = (metadata->st_size / 512) + 1;
       close(directory);
       return 0;
     }
